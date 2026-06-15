@@ -1,0 +1,38 @@
+sequenceDiagram
+    autonumber
+    actor Employer as Employer (multisig)
+    participant Orc as TS Orchestrator
+    participant PT as Payday PTB
+    participant Pay as Payroll (shared)
+    participant Esc as TaxEscrow (shared)
+    participant Sca as MockScallopVault
+    participant Nav as MockNaviVault
+    participant Pyth as Pyth (real)
+    actor Emp as Employee
+
+    Employer->>Orc: click "Run Payroll"
+    Orc->>Pyth: read FX price (publish_time)
+    Note over Orc,Pyth: D9: stale (>60s) → fx_stale flag, NOT abort<br/>FX is reporting-only, not in value path
+    Orc->>PT: build N branches (≤50/PTB), key list + PythPrice
+    PT->>Pay: begin_period(cap) — current_period += 1 (once per payday, D10)
+    loop per employee (pay_one)
+        PT->>Pay: split gross from funding (abort if short)
+        PT->>Esc: reserve(jurisdiction, withholding)
+        Note over PT,Pay: net = gross - withholding<br/>read committed AllocationConfig for current_period<br/>lazy-promote this record's pending if due (D10)
+        alt scallop.active
+            PT->>Sca: mint(scallop_amt) -> sCoin
+            Sca-->>Emp: transfer Coin<MockSCoin<USDC>>
+        else inactive (D8)
+            Note over PT: scallop_amt folds into liquid
+        end
+        alt navi.active
+            PT->>Nav: deposit(beneficiary=Emp, navi_amt)
+            Note over Nav: positions[Emp] += amt (address-keyed)
+        else inactive (D8)
+            Note over PT: navi_amt folds into liquid
+        end
+        PT-->>Emp: transfer liquid Coin<USDC>
+        PT->>PT: emit PayrollEventV1 (sum-check: gross == wh+liq+sca+navi; +fx_stale)
+    end
+    PT-->>Employer: one tx hash / explorer URL
+    Emp->>Pay: set_ratios via AllocationCap (staged → effective next period, D10)

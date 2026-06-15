@@ -1,0 +1,23 @@
+graph TD
+    payroll[payroll<br/>Payroll shared obj · PayrollOwnerCap · pay_one]
+    allocation[allocation<br/>AllocationCap · AllocationConfig · route]
+    escrow[escrow<br/>TaxEscrow shared obj]
+    compliance[compliance<br/>PayrollEventV1]
+    vault_std[vault_std<br/>deposit interface contract]
+    mock_scallop[vaults::mock_scallop<br/>mint -> Coin&lt;MockSCoin&gt;]
+    mock_navi[vaults::mock_navi<br/>deposit beneficiary · address-keyed]
+
+    payroll --> allocation
+    payroll --> escrow
+    payroll --> compliance
+    allocation --> vault_std
+    allocation --> escrow
+    mock_scallop --> vault_std
+    mock_navi --> vault_std
+
+    classDef core fill:#1f6feb,color:#fff;
+    classDef seam fill:#8957e5,color:#fff;
+    classDef mock fill:#d29922,color:#000;
+    class payroll,allocation,escrow,compliance core;
+    class vault_std seam;
+    class mock_scallop,mock_navi mock;
