@@ -125,6 +125,35 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
     monkey:gross=0、100% withholding、單桶 liquid、u64::MAX 不溢位、兩條 abort path、stale FX pass-through。
   - red-team 跳過(同 escrow seam 理由):無 auth/mutation/shared state,無攻擊面;核心金流紅隊留 #5 payroll。
   - 延後(同前):`#[error]` annotation、Move.toml 顯式依賴(等全域定案統一)。
+- **TODO #5 payroll 完成(2026-06-15)**:`sources/payroll.move` + `tests/payroll_tests.move`(20 test)。
+  `sui move build` clean(0 warning,1 suppressed);`sui move test` **66/66 PASS**。root module,auth 收口層,
+  review 三輪(move-code-quality → sui-security-guard → sui-red-team 10 rounds)+ 修完再驗一輪,verdict commit y。
+  - **3 項設計定案(與 spec 字面不同,沿用 #2/#3 已核准模式)**:
+    1. `Payroll<phantom T>` **generic**(spec 寫死 `Balance<USDC>`)——配合 escrow/allocation/vault 全 generic,GTM 換型別引數。
+    2. **FX scalar seam**(spec 寫 `price: &PythPrice`)——Pyth 是 TODO #7 未整合。`pay_one` 收
+       `(fx_pair, fx_rate, fx_pyth_publish_time, clock)`,module 內算 `fx_stale = now_ms-pub_ms > 60_000`(D9)。
+       TODO #7 只需包 Pyth→這些 scalar,簽章不動。**⚠ publish_time 約定為 ms**(配合 clock.timestamp_ms)。
+    3. `add_employee` 直接 `transfer` AllocationCap 給員工(spec 簽章 return)——entry-friendly。
+  - **#2/#3 轉嫁的 HIGH auth 約束全部收口**:`assert_owner`(雙向:`object::id(cap)==owner_cap_id` 且
+    `cap.payroll_id==object::id(payroll)`)gate fund/add/set_gross/begin_period/pay_one/remit/migrate;
+    `assert_alloc_owner`(三重:cap_payroll_id + cap_employee + `record.allocation_cap_id==object::id(cap)`)
+    gate set_ratios/pause。物件 id 比對是 load-bearing(欄位相同但 id 不同的偽造 cap 被擋)。
+  - **review 抓到 2 個真 bug,已修(非 tracked debt,當場收口)**:
+    1. **escrow 未綁定 payroll**(security MED-2 / red-team round3):remit/migrate/pay_one 收任意 `TaxEscrow<T>`,
+       cap 只 gate「誰」不 gate「哪個 escrow」→ 多租戶(D5/D6)可跨租戶 drain。
+       **修**:`Payroll` 加 `escrow_id: ID`(create 時綁),三函式 assert `object::id(escrow)==escrow_id`,
+       新碼 `EWrongEscrow=12`。**vault 故意不綁**(mainnet Scallop/Navi 是全域 singleton,綁了反而錯)。
+    2. **同期重複付款**(red-team round5):無 idempotency guard。**修**:`EmployeeRecord.last_paid_period`,
+       `pay_one` assert `last_paid_period < period` 後設值,新碼 `EAlreadyPaidThisPeriod=11`。
+       **副作用(正確)**:付款需 period≥1 → 強制「先 begin_period 開薪資期才能付」,period 0 付款無效業務狀態。
+       >50 員工多 PTB 同期 payday 仍安全:guard 是 per-record 非 per-period-global,每人恰付一次,重跑 chunk 自動擋已付。
+  - 錯誤碼:全用 spec §8 payroll-global(1/2/3/5/7/9)+ 延續序號 10(ENotUpgrade)/11(EAlreadyPaidThisPeriod)/
+    12(EWrongEscrow)。`VERSION=1`,`assert_version` gate 每個 mutating entry(migrate 除外——它是修版號的)。
+  - value conservation 結構性(linear split chain:`funding.split(gross)→.split(wh)→route(net)`);
+    compliance u128 sum-check 是 fail-loud 雙保險(Rule 12)。借用衛生:record 欄位先 copy 出再碰 `payroll.funding`(disjoint-field)。
+  - test_only:`create_payroll_for_testing`(鏡像 create,建+share 綁定 escrow)、`set_version_for_testing`、`package_version`。
+    紅隊回歸:`double_pay_same_period_aborts`(11)、`pay_one_foreign_escrow_rejected`(12)、`pay_at_period_zero_aborts`(11)。
+  - **⚠ commit 尚未做**(非 git repo);#1–#5 全未 commit,待 user 決定。
 - 其餘模組實作後跑 `sui move test` + monkey test(gross=0、withholding=100%、ratios 單桶、
   funding 剛好等於 Σgross、50-employee 邊界、paused 員工)再 commit。
 
