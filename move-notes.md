@@ -156,6 +156,15 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
   - **⚠ commit 尚未做**(非 git repo);#1–#5 全未 commit,待 user 決定。
 - 其餘模組實作後跑 `sui move test` + monkey test(gross=0、withholding=100%、ratios 單桶、
   funding 剛好等於 Σgross、50-employee 邊界、paused 員工)再 commit。
+- **TODO #6 scenario/整合 test 完成(2026-06-16)**:`tests/scenario_tests.move`(5 test,純 test 新增,**零 source 改動**)。
+  `sui move test` **71/71 PASS**(66 既有 + 5 新)。per-module suite 全是「單員工×單期」,#6 補跨模組生產形狀(batch payday)的空白:
+  1. `multi_employee_batch_one_period`:一次 `begin_period` → pay ALICE(AR)+BOB(BR),escrow bucket 不混、liquid、funding 獨立扣(100k→97k)。
+  2. `same_employee_paid_two_periods`:`last_paid_period` 跨期 1→2,double-pay guard 只擋同期重放不擋次期合法 payday;escrow 累加 200。
+  3. `staged_ratio_promotes_next_period`:D10 跨真實期界——P1 用 live 100% liquid、staged 50/30/20 只在 P2 promote(比 payroll_tests 的 stage@0→pay@1 更嚴,中間夾一個 P1 payday)。
+  4. `full_lifecycle_two_periods_then_remit`:create→fund→add×2(同 AR bucket)→2 paydays→remit 600 給 authority,bucket 歸零。
+  5. `midbatch_shortfall_aborts_whole_batch`(monkey):批次中 BOB funding 不足 → 整 PTB abort(`EInsufficientFunding=3`)。
+  - **⚠ 鏈上性質,test 無法直接觀測**:scenario 5 的「ALICE 已付款隨整批回滾」是 PTB 原子性(鏈上),test_scenario 只能證「任一人失敗→整批 abort」,回滾本身未在 testnet 實測(推測符合 PTB 語義)。
+  - review:純 test 新增,依 dev-rules trivial 跳過兩輪 review、conventions test code 不需 red-team。self-review 對 Rule 3(surgical,單檔零 source)+ Rule 9(WHY 註解寫 invariant 重要性非行為)通過。
 
 ## 全package 架構 review(sui-architect,2026-06-16,組裝後成品審查)
 > Verdict:**MVP/testnet sound**,無 CRITICAL/HIGH 阻擋 TS orchestrator。所有 finding 皆 doc/planning 級,**code 不動**。
