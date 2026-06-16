@@ -57,17 +57,23 @@ payroll_flow (package)
     └── mock_navi    — account/address-keyed model: deposit(beneficiary, coin) (no return)
 ```
 
-Dependency direction (no cycles): `vaults::* → vault_std`; `allocation → vault_std, escrow`;
-`payroll → allocation, escrow, compliance`. See [`module-dependency.mmd`](../architecture/module-dependency.mmd).
+Dependency direction (no cycles, verified against actual imports):
+`vaults::* → vault_std`; `allocation → vaults::{mock_scallop, mock_navi}`;
+`payroll → allocation, escrow, compliance, vaults::{mock_scallop, mock_navi}`.
+Note `allocation` does **not** import `escrow` or `vault_std` directly — escrow is touched only by the
+`payroll` wrapper, and `vault_std` is referenced only by the mock vaults. See
+[`module-dependency.mmd`](../architecture/module-dependency.mmd).
 
-**Why this split:** `vault_std` is the seam that makes D1/D2 work. `allocation::route()` depends only on
-the `vault_std` function-shape contract, never on a concrete vault's internals.
+**Why this split:** `vault_std` is the seam that makes D1/D2 work — it pins the *shape* of a vault's
+deposit functions so the mock and the future mainnet adapter stay drop-in compatible.
 
-**Seam reality (no traits in Move):** `route()` has no dynamic dispatch — it calls concrete
-`mock_scallop::mint` / `mock_navi::deposit` by name. The mainnet swap is therefore **replacing the body of
-the mock module while keeping its signature** (the mock module *is* the adapter slot), not "adding a new
-module and leaving `route()` untouched". `vault_std` keeps the signature stable so that body swap is the
-*only* edit; `route()`'s call sites and the value-conservation logic do not change.
+**Seam reality (no traits in Move):** `route()`/`pay_one` have no dynamic dispatch — they call concrete
+`mock_scallop::mint` / `mock_navi::deposit` by name, and the **two venue slots are hardwired into the
+function signatures**. The mainnet swap of an *existing* venue is **replacing the body of that mock module
+while keeping its signature** (the mock module *is* the adapter slot) — call sites and value-conservation
+logic do not change. But `vault_std` is **not a general extensible interface**: adding a *third* venue is a
+signature change to `route()`/`pay_one` (a breaking edit + D11 upgrade), not a body swap. MVP is two slots,
+hard-wired by design.
 
 ---
 
@@ -277,6 +283,13 @@ public struct PayrollEventV1 has copy, drop {
 }
 ```
 
+> **⚠ FX unit contract (pin before #7 Pyth integration):** `fx_pyth_publish_time` is in **milliseconds**.
+> `payroll::is_fx_stale` compares it against `clock.timestamp_ms()` with `FX_STALE_MS = 60_000`. Native Pyth
+> `PriceInfoObject.publish_time` is in **seconds** — the #8 TS orchestrator (and the #7 on-chain Pyth read)
+> **must multiply by 1000** before passing it in. Feeding raw Pyth seconds would make every event read as
+> `fx_stale=true` (≈50 years stale), corrupting the auditor staleness signal. D9 keeps this off the USDC
+> value path, so it never mis-pays — but the forensic flag would be wrong. Unit is ms, end to end.
+
 Versioned (`V1`) so the indexer schema and auditor receipts survive contract upgrades. The auditor sum-check
 (`BUSINESS_SPEC UC3`) is: `gross == withholding + liquid_amt + scallop_amt + navi_amt` verified against the
 event — must match the on-chain object mutations exactly.
@@ -364,6 +377,12 @@ Red-team vectors (per `.claude/rules`), ≤5, with the defense baked into the de
 
 - **MVP:** `sui move build` + `sui move test` clean → publish to **testnet**. Mock vaults + Pyth real.
 - **PTB orchestration:** TS backend batches ≤50 employees/PTB; >50 → N PTBs (object limit, `§13`).
+- **Operator invariant (canonical vault IDs):** `pay_one` accepts *any* same-type `MockScallopVault` /
+  `MockNaviVault` and has **no on-chain guard** binding the Payroll to a specific vault (vault is an
+  un-bound singleton by design — see §2 / `move-notes.md`). The #8 orchestrator therefore **must** pass the
+  canonical mainnet scallop/navi vault object IDs on every payday PTB. A wrong-but-same-type vault would
+  route funds to the wrong pool with no abort. This is an off-chain operator responsibility, not a contract
+  fix; pin the canonical IDs in orchestrator config.
 - **Mainnet swap (replace mock module body, keep `vault_std` signature — see §2 seam reality):**
   - `mock_scallop` body → real Scallop call `protocol::mint::mint` (non-entry, returns sCoin). Pass real
     `Version`/`Market` objects; resolve addresses dynamically via Scallop SDK (do **not** hardcode —
@@ -377,6 +396,11 @@ Red-team vectors (per `.claude/rules`), ≤5, with the defense baked into the de
   `migrate(&mut Payroll, &PayrollOwnerCap)` / `migrate(&mut TaxEscrow, ...)` that sets the shared object's
   `version` to the new `VERSION`. Mutating entries `assert_version` first, so the old module version is fenced
   off the instant the object is migrated.
+- **Migrate invariant (Payroll ⇔ escrow migrate together):** a `Payroll` is bound to its `TaxEscrow` via
+  `escrow_id` (enforced at `pay_one` by `EWrongEscrow`). After an upgrade, **both shared objects must be
+  migrated in the same release** before the next payday — `pay_one` requires `assert_version` to pass on
+  *both*. Migrating one and not the other bricks payday (version fence) until the pair is consistent. Treat
+  the `(Payroll, its TaxEscrow)` pair as a single migration unit; never migrate them in separate upgrades.
 
 ---
 

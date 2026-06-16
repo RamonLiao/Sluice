@@ -10,8 +10,10 @@ graph TD
     payroll --> allocation
     payroll --> escrow
     payroll --> compliance
-    allocation --> vault_std
-    allocation --> escrow
+    payroll --> mock_scallop
+    payroll --> mock_navi
+    allocation --> mock_scallop
+    allocation --> mock_navi
     mock_scallop --> vault_std
     mock_navi --> vault_std
 

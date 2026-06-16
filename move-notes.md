@@ -157,7 +157,35 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
 - 其餘模組實作後跑 `sui move test` + monkey test(gross=0、withholding=100%、ratios 單桶、
   funding 剛好等於 Σgross、50-employee 邊界、paused 員工)再 commit。
 
+## 全package 架構 review(sui-architect,2026-06-16,組裝後成品審查)
+> Verdict:**MVP/testnet sound**,無 CRITICAL/HIGH 阻擋 TS orchestrator。所有 finding 皆 doc/planning 級,**code 不動**。
+> OK 驗證通過:acyclic DAG、cycle-break pattern 五模組一致、generic T 端到端無洩漏(USDC swap 確認單點)、
+> sum-check invariant 完整、D11 版本閘兩 shared object 一致。
+
+**✅ 全 5 項已修(2026-06-16,純文件,無 code 改動):**
+- #1 fx 單位 → spec §7 加「FX unit contract」warning box(ms end-to-end,#7/#8 餵 ms;code 端 line 39/324 早已釘)。
+- #2 依賴圖 → `module-dependency.mmd` 砍假邊 `allocation→{escrow,vault_std}`、補真邊 `payroll/allocation→{mock_scallop,mock_navi}`;spec §2 prose 同步(實測 import 驗證)。
+- #3 migrate invariant → spec §12 加「Payroll⇔escrow migrate together」(escrow_id bind,兩 shared obj 同 release 一起 migrate)。
+- #4 vault-ID trust → spec §12 加 operator invariant(orchestrator 必傳 canonical vault ID)。
+- #5 spec §2 誠實化 → vault_std 非通用 interface,兩槽硬接,加第三 venue 是簽章破壞(D11 upgrade,非 body swap)。
+
+**(原)待修清單(留存):**
+1. **[LOW 但會咬人] fx 單位釘死** — `payroll::is_fx_stale` 把 `fx_pyth_publish_time` 當 **ms** 比(對 `clock.timestamp_ms()`),
+   但 Pyth 原生 `publish_time` 是**秒**。D9 保護價值路徑不會壞錢,但會讓 auditor staleness 訊號失真。
+   → **#7 Pyth 整合前**必須在 spec §7 欄位註解 + TODO #7 contract 明寫單位約定(orchestrator 餵 ms)。
+2. **[LOW] 依賴圖/spec §2 prose drift** — `module-dependency.mmd` 寫了**假邊** `allocation→escrow`(實際 allocation 沒 import escrow,只有 payroll 有),
+   且漏真邊 `allocation→{mock_scallop,mock_navi}`、`payroll→{mock_scallop,mock_navi}`。→ 修圖 + 修 spec §2 文字(會誤導 GTM swap 規劃)。
+3. **[MED] migrate 跨物件耦合記成 invariant** — Payroll+escrow 同時 migrate 的安全性隱性靠 `escrow_id` bind +
+   兩者都是 migrate 必填參數。正確但未文件化。→ 在 spec/notes 明寫「Payroll 與其 escrow 永遠一起 migrate」為 migrate invariant。
+4. **[MED] vault 未綁 = orchestrator 信任面** — vault 故意不綁(mainnet singleton 正確),但 `pay_one` 收任意同型 vault,無鏈上 guard。
+   → #8 orchestrator 規範:必須傳 canonical scallop/navi vault ID。記為 operator invariant(非 code fix)。
+5. **[MED] spec §2 高估 `vault_std` 可擴展性** — `route`/`pay_one` 把恰好 2 個 venue 寫死進簽章;加第三個 venue 是簽章破壞,非 body swap。
+   → 修 spec §2 措辭誠實化(MVP 兩槽硬接,非通用 interface)。
+
 ## 已知風險 / GTM 前 open task
 1. **Navi mainnet 代員工存入**:per-employee `AccountCap` 存 registry vs sponsored/co-signed deposit?未決。
-2. **mock USDC type → mainnet canonical USDC type** 切換點。
+   **⚠ 架構 review 補充(HIGH, mainnet only)**:Navi mock 的 `beneficiary: address` 參數在真 Navi **無對應**(真 Navi 記 `ctx.sender()`/`AccountCap`),
+   payday sender=雇主 → Navi seam **不是純 body swap**,需改 `EmployeeRecord` schema(存 AccountCap)→ 等於一次 **D11 schema-migrating upgrade**,非熱替換。
+   Scallop seam 才是真 drop-in(`mint` 回 `Coin<MarketCoin<T>>` 同形)。GTM 規劃必須把 Navi-mainnet 當 upgrade event 處理。
+2. **mock USDC type → mainnet canonical USDC type** 切換點(已確認:單點 call-site 改動,非 code 改動)。
 3. 上述兩者解掉前不可上 mainnet。
