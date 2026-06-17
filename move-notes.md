@@ -198,3 +198,5 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
    Scallop seam 才是真 drop-in(`mint` 回 `Coin<MarketCoin<T>>` 同形)。GTM 規劃必須把 Navi-mainnet 當 upgrade event 處理。
 2. **mock USDC type → mainnet canonical USDC type** 切換點(已確認:單點 call-site 改動,非 code 改動)。
 3. 上述兩者解掉前不可上 mainnet。
+4. **[#7 operator invariant] fx_pair label 無鏈上驗證**:`pay_one` 收任意 `vector<u8>`,鏈上不檢查 label 是否對應實際查的 feed(reporting-only,符合 D9)。
+   同「vault-ID trust」類 → **#8 orchestrator 規範**:傳入 `fx_pair` 必須對應 `getFxScalars` 實際查的 Pyth feed。記為 operator invariant(非 code fix)。
