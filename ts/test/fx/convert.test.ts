@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rawToFxRate, secToMs } from "../../src/fx/convert.js";
+import { rawToFxRate, secToMs, deriveInverse } from "../../src/fx/convert.js";
 import { InvalidFxPrice, FxRateOverflow } from "../../src/fx/types.js";
 
 const U64_MAX = 2n ** 64n - 1n;
@@ -28,6 +28,25 @@ describe("rawToFxRate (D9 fixed point)", () => {
   it("rejects fx_rate > u64::MAX", () => {
     expect(() => rawToFxRate({ price: U64_MAX, expo: 0, publishTimeSec: 0n })).toThrow(FxRateOverflow);
   });
+});
+
+describe("deriveInverse (JPY/USD = 1 / USD/JPY)", () => {
+  // WHY: Pyth has no JPY/USD feed, only USD/JPY. The reciprocal must stay D9-scaled
+  // so the tiny ~0.0064 rate keeps 9 fractional digits of precision for auditors.
+  it("inverts a D9 rate back into D9", () => {
+    // USD/JPY 156.25 (156_250_000_000) -> 1/156.25 = 0.0064 -> 6_400_000
+    expect(deriveInverse(156_250_000_000n)).toBe(6_400_000n);
+  });
+  it("round-half-up on inversion", () => {
+    // USD/JPY 3.0 (3_000_000_000) -> 1/3 = 0.333333333... -> 333_333_333 (…3.3 rounds down)
+    expect(deriveInverse(3_000_000_000n)).toBe(333_333_333n);
+  });
+  it("rejects denominator <= 0", () => {
+    expect(() => deriveInverse(0n)).toThrow(InvalidFxPrice);
+    expect(() => deriveInverse(-1n)).toThrow(InvalidFxPrice);
+  });
+  // NOTE: overflow is unreachable for inverse — numerator is fixed at 1e18, so any
+  // den>=1 yields <=1e18, well under u64::MAX (~1.84e19). The guard stays as defense.
 });
 
 describe("secToMs", () => {
