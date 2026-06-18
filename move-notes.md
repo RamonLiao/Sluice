@@ -179,9 +179,10 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
 - #5 spec §2 誠實化 → vault_std 非通用 interface,兩槽硬接,加第三 venue 是簽章破壞(D11 upgrade,非 body swap)。
 
 **(原)待修清單(留存):**
-1. **[LOW 但會咬人] fx 單位釘死** — `payroll::is_fx_stale` 把 `fx_pyth_publish_time` 當 **ms** 比(對 `clock.timestamp_ms()`),
-   但 Pyth 原生 `publish_time` 是**秒**。D9 保護價值路徑不會壞錢,但會讓 auditor staleness 訊號失真。
-   → **#7 Pyth 整合前**必須在 spec §7 欄位註解 + TODO #7 contract 明寫單位約定(orchestrator 餵 ms)。
+1. **[CLOSED by #7] fx 單位釘死** — ~~`payroll::is_fx_stale` 把 `fx_pyth_publish_time` 當 **ms** 比,但 Pyth 原生 `publish_time` 是**秒**~~。
+   ✅ 已解:off-chain client `ts/` `@payroll-flow/orchestrator` 的 `getFxScalars` 用 `secToMs`(×1000)把 publish_time 轉 ms,
+   並把 `fx_rate` 釘成 **D9 定點**(`round(price×1e9)`,u64),seam consumer 端到端收 ms。spec §7 已加 scale-pin box。
+   (附:#7 Task 1 修正 — EUR/GBP 是 direct feed 非 cross;JPY/USD 無 feed,改 inverse of USD/JPY。)
 2. **[LOW] 依賴圖/spec §2 prose drift** — `module-dependency.mmd` 寫了**假邊** `allocation→escrow`(實際 allocation 沒 import escrow,只有 payroll 有),
    且漏真邊 `allocation→{mock_scallop,mock_navi}`、`payroll→{mock_scallop,mock_navi}`。→ 修圖 + 修 spec §2 文字(會誤導 GTM swap 規劃)。
 3. **[MED] migrate 跨物件耦合記成 invariant** — Payroll+escrow 同時 migrate 的安全性隱性靠 `escrow_id` bind +

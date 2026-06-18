@@ -290,6 +290,23 @@ public struct PayrollEventV1 has copy, drop {
 > `fx_stale=true` (≈50 years stale), corrupting the auditor staleness signal. D9 keeps this off the USDC
 > value path, so it never mis-pays — but the forensic flag would be wrong. Unit is ms, end to end.
 
+> **⚠ `fx_rate` scale (pinned by #7):** `fx_rate` is **D9 fixed point** (`round(price × 1e9)`, u64).
+> The off-chain client (`ts/` `@payroll-flow/orchestrator`, TODO #7) is the **single producer** via
+> `getFxScalars(pair)`; it converts Pyth `price/expo` to D9 and `publish_time` seconds→ms. Changing this
+> scale post-mainnet is a D11 schema-migrating upgrade — treat it as frozen.
+
+> **Pyth feed registry (resolved 2026-06-18, #7 Task 1 — corrects earlier assumptions):**
+> EUR/USD, GBP/USD, **EUR/GBP are all `direct` Hermes FX feeds** — EUR/GBP is NOT derived as a cross
+> (a direct feed exists; cross derivation was dropped). **JPY/USD has no Pyth feed**; only `USD/JPY` exists,
+> so JPY/USD is `inverse` = `round(1e18 / USDJPY_d9)` (single-feed reciprocal, publish_time passes through —
+> no second-leg staleness). Live cross-check confirmed EUR/GBP direct ≈ EUR/USD ÷ GBP/USD.
+
+> **Roadmap — on-chain FX (Opt 1, opt-in):** for tamper-evident FX, a future Move adapter reads a Pyth
+> `PriceInfoObject` and derives the same `(fx_rate, fx_pyth_publish_time)` scalars in-PTB. The seam signature
+> is unchanged → non-breaking upgrade. Added cost: Pyth package dependency, a Hermes VAA
+> `update_single_price_feed` per payday PTB, and a Pyth liveness dependency. Reserved for compliance customers
+> who require verifiable FX.
+
 Versioned (`V1`) so the indexer schema and auditor receipts survive contract upgrades. The auditor sum-check
 (`BUSINESS_SPEC UC3`) is: `gross == withholding + liquid_amt + scallop_amt + navi_amt` verified against the
 event — must match the on-chain object mutations exactly.
