@@ -76,6 +76,10 @@ ts/test/payday/
 ## Batching & begin_period
 
 - `MAX_BATCH = 50` (spec §13 / BUSINESS_SPEC §13 object limit). `chunk()` preserves caller order.
+  **(M2)** 50 is a conservative *object-mutation budget* estimate, not a command-count limit (a PTB
+  holds up to 1024 commands). Each `pay_one` mutates/creates several objects (liquid coin transfer +
+  escrow reserve + 2 vault deposits). The real ceiling is calibrated in **Phase C** gas measurement
+  (3/50/100 employees) — annotate the constant as provisional.
 - `begin_period` move call is prepended to **chunk[0]'s** Transaction only. The builder owns
   this invariant; the caller cannot get it wrong.
 - **Contract:** one `buildPayday` call == one fresh payday. The builder is pure and cannot know
@@ -99,7 +103,7 @@ tx.moveCall({
     tx.object(cfg.scallopId),
     tx.object(cfg.naviId),
     tx.pure.address(emp.addr),
-    tx.pure(bcs.vector(bcs.u8()).serialize(fx.fx_pair)), // vector<u8> fx_pair
+    tx.pure.vector("u8", [...fx.fx_pair]),               // vector<u8> fx_pair (M1: idiomatic, no manual bcs)
     tx.pure.u64(fx.fx_rate),                             // bigint — never downcast to number
     tx.pure.u64(fx.fx_pyth_publish_time_ms),             // bigint
     tx.object(cfg.clockId),
@@ -109,6 +113,30 @@ tx.moveCall({
 
 Shared-object inputs (payroll/escrow/scallop/navi/clock) are referenced once and reused across
 all branches in the same Transaction (spec §11: minimize shared-object contention).
+
+## SUI on-chain semantics (sui-architect review findings)
+
+These are real PTB/object-model constraints that shape the Phase A↔B boundary. They MUST hold or
+Phase B breaks.
+
+- **[H1] Lazy shared-object resolution.** `payroll/escrow/scallop/navi` are **shared objects** and
+  `ownerCapId` is an **owned object**. A pure builder has no `SuiClient`, so it cannot fill
+  `initialSharedVersion`/mutable flags (shared) or `version`/`digest` (owned). The `Transaction`
+  objects are therefore returned **unresolved** — resolution is deferred to the Phase B executor,
+  which holds the client and resolves at sign time. **Consequence for Phase A:** tests use
+  `tx.getData()` only; **never call `tx.build()`** in Phase A (it requires resolution and will throw).
+
+- **[H2] Cross-chunk ordering is a hard contract.** `chunk[0]` carries `begin_period` (period 0→1).
+  Every `pay_one` checks `last_paid_period < current_period`. If `chunk[1..]` are submitted before
+  `chunk[0]` lands, `current_period` is still 0 → `0 < 0` is false → the whole chunk aborts
+  (`EAlreadyPaidThisPeriod`). **`PaydayPlan.transactions` order == mandatory submission order, and
+  `transactions[0]` must be confirmed on-chain before submitting the rest.** Phase A cannot enforce
+  this (it does not submit); it is a hard requirement on the Phase B executor, surfaced via the array
+  order + `chunks[0].hasBeginPeriod`.
+
+- **[H3] Owner cap signer binding.** `ownerCapId` (`&PayrollOwnerCap`) is owned by the employer.
+  Reusing it across chunks is fine (it is borrowed, not consumed), but Phase B must ensure the PTB
+  **signer == cap owner**, else the transaction is unsignable / will fail. Phase B invariant.
 
 ## Builder-enforced invariants
 
@@ -124,7 +152,8 @@ all branches in the same Transaction (spec §11: minimize shared-object contenti
 
 ## Testing (Rule 9: tests encode intent)
 
-Verify PTB structure without submitting, via `tx.getData()` (transaction kind / commands).
+Verify PTB structure via `tx.getData()` (transaction kind / commands). **Never call `tx.build()`
+in Phase A** — shared/owned object refs are unresolved (finding [H1]) and `build()` would throw.
 
 - **Chunking:** 0 / 1 / 50 / 51 / 100 employees -> chunk counts ([], [1], [50], [50,1], [50,50]).
 - **begin_period once:** chunk[0] first command is `begin_period`; chunk[1..] have none; empty
@@ -141,4 +170,5 @@ Out of scope (YAGNI): real signing, submission, gas measurement (Phase B/C).
 ## Dependencies
 
 Add `@mysten/sui` to `ts/package.json` (currently only `@pythnetwork/hermes-client`). Use its
-`Transaction` and `bcs` exports.
+`Transaction` export (and `tx.pure.vector`/`tx.pure.u64` builder helpers — no manual `bcs` needed
+after M1).
