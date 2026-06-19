@@ -81,7 +81,16 @@ ts/test/payday/
   escrow reserve + 2 vault deposits). The real ceiling is calibrated in **Phase C** gas measurement
   (3/50/100 employees) — annotate the constant as provisional.
 - `begin_period` move call is prepended to **chunk[0]'s** Transaction only. The builder owns
-  this invariant; the caller cannot get it wrong.
+  this invariant; the caller cannot get it wrong. Signature is
+  `begin_period<T>(payroll: &mut Payroll<T>, cap: &PayrollOwnerCap)` → exactly:
+  ```ts
+  tx.moveCall({
+    target: `${cfg.packageId}::payroll::begin_period`,
+    typeArguments: [cfg.coinType],
+    arguments: [tx.object(cfg.payrollId), tx.object(cfg.ownerCapId)],
+  });
+  ```
+  A test asserts chunk[0]'s first command is this 2-arg call.
 - **Contract:** one `buildPayday` call == one fresh payday. The builder is pure and cannot know
   whether `begin_period` already ran; re-running advances the period again. This risk is
   documented in JSDoc and surfaced via `chunks[0].hasBeginPeriod`. On-chain idempotency
@@ -134,9 +143,24 @@ Phase B breaks.
   this (it does not submit); it is a hard requirement on the Phase B executor, surfaced via the array
   order + `chunks[0].hasBeginPeriod`.
 
-- **[H3] Owner cap signer binding.** `ownerCapId` (`&PayrollOwnerCap`) is owned by the employer.
-  Reusing it across chunks is fine (it is borrowed, not consumed), but Phase B must ensure the PTB
-  **signer == cap owner**, else the transaction is unsignable / will fail. Phase B invariant.
+- **[H3] Owner cap signer binding + gas.** `ownerCapId` (`&PayrollOwnerCap`) is owned by the
+  employer. Reusing it across chunks is fine (borrowed, not consumed), but Phase B must ensure
+  **signer == cap owner == gas-coin owner**, and the gas coin must NOT be drawn from the `funding`
+  source paid out. Phase B invariant.
+
+- **[H2b] Equivocation across sequential chunks (the real driver of H2's ordering rule).** Beyond
+  the logical period guard, the owned objects referenced by every chunk — the **owner cap** and the
+  **gas coin** — carry an object *version*. If Phase B signs chunk[1] using a version captured
+  *before* chunk[0] confirms, both txs reference the same unconfirmed version → the object is locked
+  and both can fail (equivocation). Phase B MUST re-fetch owner-cap + gas-coin versions after each
+  chunk confirms. This is why H2's "confirm chunk[0] before submitting the rest" is mandatory, not
+  just a logical nicety.
+
+- **[H1b] Per-object mutability map (Phase B resolution contract).** When Phase B resolves shared
+  refs it must use the correct mutable flag, or it either aborts or needlessly contends a hot global:
+  `payroll / escrow / scallop / navi` are all `&mut` → **mutable: true**; `clock` (0x6) is `&Clock`
+  → **mutable: false** (shared-immutable). Resolving Clock as mutable serializes every payday on the
+  global Clock; resolving payroll as immutable aborts. Builder documents this map; Phase B applies it.
 
 ## Builder-enforced invariants
 
@@ -152,8 +176,10 @@ Phase B breaks.
 
 ## Testing (Rule 9: tests encode intent)
 
-Verify PTB structure via `tx.getData()` (transaction kind / commands). **Never call `tx.build()`
-in Phase A** — shared/owned object refs are unresolved (finding [H1]) and `build()` would throw.
+Verify PTB structure via `tx.getData()` (commands/inputs) and/or
+`tx.build({ onlyTransactionKind: true })` — the latter is a stronger structural assertion and does
+NOT need object resolution (finding [H1]), so it won't throw. **Never call plain `tx.build()` in
+Phase A** — shared/owned refs are unresolved and it would throw.
 
 - **Chunking:** 0 / 1 / 50 / 51 / 100 employees -> chunk counts ([], [1], [50], [50,1], [50,50]).
 - **begin_period once:** chunk[0] first command is `begin_period`; chunk[1..] have none; empty
@@ -169,6 +195,9 @@ Out of scope (YAGNI): real signing, submission, gas measurement (Phase B/C).
 
 ## Dependencies
 
-Add `@mysten/sui` to `ts/package.json` (currently only `@pythnetwork/hermes-client`). Use its
-`Transaction` export (and `tx.pure.vector`/`tx.pure.u64` builder helpers — no manual `bcs` needed
-after M1).
+Add `@mysten/sui` to `ts/package.json` (currently only `@pythnetwork/hermes-client`), **pinned to a
+known-good `^1.x`** — `Transaction`, `tx.pure.vector`, `tx.pure.u64(bigint)`, and `getData()`/
+`build({onlyTransactionKind})` shapes are version-sensitive; a major bump can silently break the
+structural tests. Use the `Transaction` export and its `tx.pure.*` builder helpers (no manual `bcs`
+after M1). Note: `fx_pair` is a `Uint8Array` (fx/types.ts) → spread to `number[]` via
+`[...fx.fx_pair]` for `tx.pure.vector("u8", ...)`; the spread is intentional.
