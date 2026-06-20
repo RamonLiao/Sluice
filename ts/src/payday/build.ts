@@ -1,4 +1,5 @@
 import { Transaction } from "@mysten/sui/transactions";
+import { normalizeSuiAddress } from "@mysten/sui/utils";
 import type { FxScalars } from "../fx/types.js";
 import {
   type PaydayEmployee,
@@ -20,8 +21,11 @@ export function assertPaydayInputs(
 ): void {
   const seen = new Set<string>();
   for (const e of employees) {
-    if (seen.has(e.addr)) throw new DuplicatePayee(`payee ${e.addr} appears twice`);
-    seen.add(e.addr);
+    // Normalize so 0x1 and 0x01 (same on-chain address) can't evade the dup guard and
+    // collide into a second pay_one that would abort the whole PTB on-chain (fail-loud here).
+    const key = normalizeSuiAddress(e.addr);
+    if (seen.has(key)) throw new DuplicatePayee(`payee ${e.addr} appears twice`);
+    seen.add(key);
     const fx = fxByPair.get(e.pair);
     if (!fx) throw new MissingFxScalars(`no fx scalars for pair ${e.pair}`);
     if (decoder.decode(fx.fx_pair) !== e.pair) {

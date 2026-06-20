@@ -110,6 +110,16 @@ describe("assertPaydayInputs", () => {
     const bad = new Map<string, FxScalars>([["EUR/USD", scalars("GBP/USD")]]);
     expect(() => assertPaydayInputs([{ addr: "0x1", pair: "EUR/USD" }], bad)).toThrow(FxPairLabelMismatch);
   });
+  // WHY: 0x1 and 0x01 are the SAME on-chain address; without normalization both evade the dup
+  // guard and the second pay_one aborts the whole PTB on-chain — fail loud here instead.
+  it("rejects non-normalized duplicate addresses (0x1 vs 0x01)", () => {
+    expect(() =>
+      assertPaydayInputs(
+        [{ addr: "0x1", pair: "EUR/USD" }, { addr: "0x01", pair: "EUR/USD" }],
+        fxMap,
+      ),
+    ).toThrow(DuplicatePayee);
+  });
 });
 
 describe("buildPayday boundaries (monkey)", () => {
