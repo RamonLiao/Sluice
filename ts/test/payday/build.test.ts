@@ -111,3 +111,24 @@ describe("assertPaydayInputs", () => {
     expect(() => assertPaydayInputs([{ addr: "0x1", pair: "EUR/USD" }], bad)).toThrow(FxPairLabelMismatch);
   });
 });
+
+describe("buildPayday boundaries (monkey)", () => {
+  // WHY: 50 is the object-budget boundary; off-by-one here is exactly what overflows a PTB.
+  it("exactly 50 -> single chunk with begin_period", () => {
+    const plan = buildPayday(emps(50), fxMap, cfg);
+    expect(plan.chunks.map((c) => c.employees.length)).toEqual([50]);
+    expect(plan.chunks[0]!.hasBeginPeriod).toBe(true);
+  });
+  it("100 -> [50,50], only first carries begin_period", () => {
+    const plan = buildPayday(emps(100), fxMap, cfg);
+    expect(plan.chunks.map((c) => c.employees.length)).toEqual([50, 50]);
+    expect(plan.chunks.map((c) => c.hasBeginPeriod)).toEqual([true, false]);
+  });
+  // WHY: pay_one takes 10 PTB args in a fixed order; a missing/extra arg is a silent abort on-chain.
+  it("each pay_one carries exactly 10 arguments", () => {
+    const plan = buildPayday(emps(1), fxMap, cfg);
+    const cmds = plan.transactions[0]!.getData().commands;
+    const payOne = cmds.find((c): c is Extract<typeof c, { MoveCall: unknown }> => "MoveCall" in c && (c as { MoveCall: { function: string } }).MoveCall.function === "pay_one")!;
+    expect((payOne.MoveCall as { arguments: unknown[] }).arguments.length).toBe(10);
+  });
+});
