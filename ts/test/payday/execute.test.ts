@@ -24,3 +24,92 @@ describe("assertPeriodGate", () => {
     expect(() => assertPeriodGate(2n, 2, 1n)).toThrow(PeriodGateError); // advanced too far -> drift
   });
 });
+
+import { Transaction } from "@mysten/sui/transactions";
+import { executePayday } from "../../src/payday/execute.js";
+import type { PaydayClient, PaydaySigner } from "../../src/payday/execute-types.js";
+import type { PaydayPlan } from "../../src/payday/types.js";
+
+const ADDR = "0x" + "a".repeat(64);
+const signer: PaydaySigner = { toSuiAddress: () => ADDR };
+
+function makePlan(chunkCount: number): PaydayPlan {
+  const transactions: Transaction[] = [];
+  const chunks: PaydayPlan["chunks"] = [];
+  for (let i = 0; i < chunkCount; i++) {
+    transactions.push(new Transaction());
+    chunks.push({ employees: ["0x" + String(i).padStart(64, "0")], hasBeginPeriod: i === 0 });
+  }
+  return { transactions, chunks };
+}
+
+interface MockOpts {
+  currentPeriod?: bigint;
+  failExecAt?: number;  // 0-based index AMONG signAndExecute calls that returns FailedTransaction
+  dryRunOk?: boolean;
+  throwWaitAt?: number; // 0-based index among waitForConfirm calls that throws
+}
+
+function makeMockClient(opts: MockOpts = {}) {
+  const calls: string[] = [];
+  let execN = 0;
+  let waitN = 0;
+  const client: PaydayClient = {
+    async getCurrentPeriod() {
+      calls.push("getCurrentPeriod");
+      return opts.currentPeriod ?? 0n;
+    },
+    async dryRunTransaction() {
+      calls.push("dryRun");
+      const ok = opts.dryRunOk ?? true;
+      return { ok, error: ok ? null : "simulated abort" };
+    },
+    async signAndExecute() {
+      const idx = execN++;
+      calls.push(`exec:${idx}`);
+      const failed = opts.failExecAt === idx;
+      return {
+        kind: failed ? "FailedTransaction" : "success",
+        digest: `dig${idx}`,
+        error: failed ? "MoveAbort 11" : null,
+        gasUsed: failed ? null : 1000n,
+      };
+    },
+    async waitForConfirm() {
+      const idx = waitN++;
+      calls.push(`wait:${idx}`);
+      if (opts.throwWaitAt === idx) throw new Error("wait timeout");
+    },
+  };
+  return { client, calls };
+}
+
+describe("executePayday — happy path", () => {
+  it("runs all chunks, returns success receipts + completed", async () => {
+    const { client, calls } = makeMockClient();
+    const plan = makePlan(3);
+    const res = await executePayday(plan, "0xpayroll", signer, client, { preflight: false });
+
+    expect(res.completed).toBe(true);
+    expect(res.nextResumeFrom).toBeNull();
+    expect(res.receipts.map((r) => r.status)).toEqual(["success", "success", "success"]);
+    expect(res.receipts.map((r) => r.digest)).toEqual(["dig0", "dig1", "dig2"]);
+    expect(res.receipts.every((r) => r.gasUsed === 1000n)).toBe(true);
+    // WHY: every chunk in one payday is paid at the same period (begin_period runs once).
+    // fresh run: chain at 0 -> payday period 1.
+    expect(res.receipts.every((r) => r.paidAtPeriod === 1n)).toBe(true);
+    expect(calls).toContain("exec:2");
+  });
+});
+
+describe("executePayday — H2 sequential ordering", () => {
+  it("never sends chunk[i+1] before chunk[i] confirms (defends EAlreadyPaidThisPeriod / equivocation)", async () => {
+    const { client, calls } = makeMockClient();
+    const plan = makePlan(3);
+    await executePayday(plan, "0xpayroll", signer, client, { preflight: false });
+
+    // exec:i MUST be immediately followed by wait:i, before exec:(i+1).
+    const order = calls.filter((c) => c.startsWith("exec") || c.startsWith("wait"));
+    expect(order).toEqual(["exec:0", "wait:0", "exec:1", "wait:1", "exec:2", "wait:2"]);
+  });
+});
