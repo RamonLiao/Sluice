@@ -113,3 +113,40 @@ describe("executePayday — H2 sequential ordering", () => {
     expect(order).toEqual(["exec:0", "wait:0", "exec:1", "wait:1", "exec:2", "wait:2"]);
   });
 });
+
+describe("executePayday — fail-stop", () => {
+  it("stops at first failed chunk, never submits later chunks, sets nextResumeFrom", async () => {
+    const { client, calls } = makeMockClient({ failExecAt: 1 });
+    const plan = makePlan(3);
+    const res = await executePayday(plan, "0xpayroll", signer, client, { preflight: false });
+
+    expect(res.completed).toBe(false);
+    expect(res.nextResumeFrom).toBe(1);
+    expect(res.receipts.map((r) => r.status)).toEqual(["success", "failure", "skipped"]);
+    expect(res.receipts[1]!.error).toBe("MoveAbort 11");
+    // WHY: money fails loud — chunk[2] must NEVER be submitted after chunk[1] aborts.
+    expect(calls).not.toContain("exec:2");
+  });
+});
+
+describe("executePayday — dryRun preflight", () => {
+  it("aborts before any money moves when preflight dryRun fails", async () => {
+    const { client, calls } = makeMockClient({ dryRunOk: false });
+    const plan = makePlan(3);
+    const res = await executePayday(plan, "0xpayroll", signer, client, { preflight: true });
+
+    expect(res.completed).toBe(false);
+    expect(res.nextResumeFrom).toBe(0);
+    expect(res.receipts[0]!.status).toBe("failure");
+    expect(res.receipts[0]!.error).toBe("simulated abort");
+    // WHY: zero submissions — dryRun is the pre-money insurance gate.
+    expect(calls.filter((c) => c.startsWith("exec"))).toEqual([]);
+  });
+
+  it("preflight dryRuns only the resumeFrom chunk, not every chunk", async () => {
+    const { client, calls } = makeMockClient();
+    const plan = makePlan(3);
+    await executePayday(plan, "0xpayroll", signer, client, { preflight: true });
+    expect(calls.filter((c) => c === "dryRun").length).toBe(1);
+  });
+});
