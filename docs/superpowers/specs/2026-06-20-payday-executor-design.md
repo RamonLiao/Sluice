@@ -50,6 +50,7 @@ re-running `begin_period` for an already-started payday hard:
 ```ts
 async function executePayday(
   plan: PaydayPlan,         // from buildPayday (Phase A); transactions[] order == submission order
+  payrollId: string,        // threaded explicitly (no cfg passed) — for getCurrentPeriod / gate
   signer: Signer,           // @mysten/sui Signer — INJECTED. H3: must own ownerCap + gas coin.
   client: PaydayClient,     // narrow interface (below) — inject SuiClient in prod, mock in tests
   opts?: {
