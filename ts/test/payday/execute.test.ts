@@ -27,6 +27,7 @@ describe("assertPeriodGate", () => {
 
 import { Transaction } from "@mysten/sui/transactions";
 import { executePayday } from "../../src/payday/execute.js";
+import { ResumeRangeError } from "../../src/payday/execute-types.js";
 import type { PaydayClient, PaydaySigner } from "../../src/payday/execute-types.js";
 import type { PaydayPlan } from "../../src/payday/types.js";
 
@@ -191,5 +192,47 @@ describe("executePayday — double-pay gate integration", () => {
       preflight: false,
     });
     expect(res.completed).toBe(true);
+  });
+});
+
+describe("executePayday — monkey / red-team", () => {
+  it("empty plan -> completed, no chunks, no submissions", async () => {
+    const { client, calls } = makeMockClient();
+    const res = await executePayday(makePlan(0), "0xpayroll", signer, client, { preflight: false });
+    expect(res.completed).toBe(true);
+    expect(res.receipts).toEqual([]);
+    expect(res.nextResumeFrom).toBeNull();
+    expect(calls.filter((c) => c.startsWith("exec"))).toEqual([]);
+  });
+
+  it("resumeFrom beyond plan length throws ResumeRangeError", async () => {
+    const { client } = makeMockClient();
+    await expect(
+      executePayday(makePlan(2), "0xpayroll", signer, client, { resumeFrom: 3 }),
+    ).rejects.toBeInstanceOf(ResumeRangeError);
+  });
+
+  it("negative resumeFrom throws ResumeRangeError", async () => {
+    const { client } = makeMockClient();
+    await expect(
+      executePayday(makePlan(2), "0xpayroll", signer, client, { resumeFrom: -1 }),
+    ).rejects.toBeInstanceOf(ResumeRangeError);
+  });
+
+  it("resumeFrom === plan length is a no-op completed run (nothing left to pay)", async () => {
+    const { client, calls } = makeMockClient({ currentPeriod: 1n });
+    const res = await executePayday(makePlan(2), "0xpayroll", signer, client, { resumeFrom: 2 });
+    expect(res.completed).toBe(true);
+    expect(res.receipts.map((r) => r.status)).toEqual(["skipped", "skipped"]);
+    expect(calls.filter((c) => c.startsWith("exec"))).toEqual([]);
+  });
+
+  it("waitForConfirm throwing mid-run propagates (caller resumes); later chunks not sent", async () => {
+    const { client, calls } = makeMockClient({ throwWaitAt: 0 });
+    await expect(
+      executePayday(makePlan(3), "0xpayroll", signer, client, { preflight: false }),
+    ).rejects.toThrow("wait timeout");
+    // WHY: chunk[1] must not be submitted when chunk[0]'s confirmation is unknown (equivocation/H2b).
+    expect(calls).not.toContain("exec:1");
   });
 });
