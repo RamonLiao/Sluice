@@ -150,3 +150,46 @@ describe("executePayday — dryRun preflight", () => {
     expect(calls.filter((c) => c === "dryRun").length).toBe(1);
   });
 });
+
+describe("executePayday — resume", () => {
+  it("resumeFrom=2 marks earlier chunks skipped and submits only chunk[2]", async () => {
+    // chain already at period 1 (begin_period landed in a prior session).
+    const { client, calls } = makeMockClient({ currentPeriod: 1n });
+    const plan = makePlan(3);
+    const res = await executePayday(plan, "0xpayroll", signer, client, {
+      resumeFrom: 2,
+      preflight: false,
+    });
+
+    expect(res.completed).toBe(true);
+    expect(res.receipts.map((r) => r.status)).toEqual(["skipped", "skipped", "success"]);
+    // WHY: only one exec call, and it is the FIRST exec (chunk 0/1 never re-run -> begin_period not re-run).
+    expect(calls.filter((c) => c.startsWith("exec"))).toEqual(["exec:0"]);
+    // resumed payday pays at the already-advanced period 1 (NOT 2).
+    expect(res.receipts[2]!.paidAtPeriod).toBe(1n);
+  });
+});
+
+describe("executePayday — double-pay gate integration", () => {
+  it("throws PeriodGateError on fresh re-run when begin_period already advanced the period", async () => {
+    // caller thinks fresh payday for period 1, but chain is already at 1 -> re-running begin_period
+    // would open period 2 and re-pay everyone. Reject before any submission.
+    const { client, calls } = makeMockClient({ currentPeriod: 1n });
+    const plan = makePlan(3);
+    await expect(
+      executePayday(plan, "0xpayroll", signer, client, { resumeFrom: 0, expectedPeriod: 1n }),
+    ).rejects.toBeInstanceOf(PeriodGateError);
+    expect(calls.filter((c) => c.startsWith("exec"))).toEqual([]);
+  });
+
+  it("allows fresh run when chain is one period behind expected", async () => {
+    const { client } = makeMockClient({ currentPeriod: 0n });
+    const plan = makePlan(1);
+    const res = await executePayday(plan, "0xpayroll", signer, client, {
+      resumeFrom: 0,
+      expectedPeriod: 1n,
+      preflight: false,
+    });
+    expect(res.completed).toBe(true);
+  });
+});
