@@ -62,21 +62,31 @@ async function executePayday(
 
 ### Narrow client interface (dependency minimization + testability)
 
-The executor depends on a narrow port, not the whole `SuiClient`. A real `SuiClient`
+The executor depends on a narrow port, not the whole client. A real client adapter
 satisfies it; tests inject a mock.
 
 ```ts
 interface PaydayClient {
-  getCurrentPeriod(payrollId: string): Promise<bigint>;          // reads Payroll.current_period
-  dryRunTransaction(tx: Transaction, signer: Signer): Promise<DryRunResult>;
-  signAndExecute(tx: Transaction, signer: Signer): Promise<ExecResult>; // with showEffects
-  waitForConfirm(digest: string): Promise<void>;                 // resolves after finality
+  getCurrentPeriod(payrollId: string): Promise<bigint>;   // reads Payroll.current_period
+  dryRunTransaction(tx: Transaction): Promise<DryRunResult>;  // no signer; sender set on tx by executor
+  signAndExecute(tx: Transaction, signer: Signer): Promise<ExecResult>; // include effects
+  waitForConfirm(digest: string): Promise<void>;          // resolves after finality
 }
 ```
 
-(Exact adapter mapping to `@mysten/sui` `SuiClient` methods — `getObject` for
-current_period, `dryRunTransactionBlock`, `signAndExecuteTransaction`,
-`waitForTransaction` — is an implementation detail of the prod adapter.)
+**SDK transport decision (Rule 7 conflict resolution).** JSON-RPC is deprecated and its
+Quorum Driver submission path is disabled (removal window April 2026; we are past it). The
+prod adapter therefore targets **`SuiGrpcClient` (`@mysten/sui/grpc`) + `client.core.*`**,
+NOT the legacy JSON-RPC `SuiClient`. **No SDK version bump:** the pinned `@mysten/sui@1.45.2`
+(merged with Phase A) already ships `grpc/client` and `grpc/core`, so Phase B uses gRPC with
+zero Phase A change and zero test churn. The Phase A builder only constructs `Transaction`
+command/input shapes (stable), so it is untouched.
+
+Adapter mapping (prod):
+- `getCurrentPeriod` → `client.core.getObject({ objectId: payrollId, include:{ content:true } })`, parse `current_period`.
+- `dryRunTransaction` → `client.core.simulateTransaction({ transaction: txBytes, include:{ effects:true } })`. Requires `tx.setSender(signerAddress)` first (simulate takes no signer).
+- `signAndExecute` → `client.core.signAndExecuteTransaction({ transaction: tx, signer, include:{ effects:true } })`.
+- `waitForConfirm` → `client.waitForTransaction({ digest })`.
 
 ## Execution loop (§2) — H1/H1b/H2/H2b realization
 
@@ -86,15 +96,16 @@ assertPeriodGate(currentPeriod, resumeFrom, expectedPeriod)          // §3
 
 for (let i = resumeFrom; i < N; i++) {
   const tx = plan.transactions[i]
+  tx.setSender(signer.toSuiAddress())                              // required for simulate; H3 sender binding
   if (i === resumeFrom && preflight) {
-    const dry = await client.dryRunTransaction(tx, signer)
+    const dry = await client.dryRunTransaction(tx)
     if (!dry.ok) { record dryRun-failure receipt; return { completed:false, nextResumeFrom:i } }
   }
-  const res = await client.signAndExecute(tx, signer)               // builds+resolves+signs+submits
-  await client.waitForConfirm(res.digest)                           // H2: confirm before next
-  if (res.effects.status !== "success") {
+  const res = await client.signAndExecute(tx, signer)              // builds+resolves+signs+submits
+  await client.waitForConfirm(res.digest)                          // H2: confirm before next
+  if (res.kind === "FailedTransaction") {                          // core API discriminator, NOT effects.status
     record failure receipt(i, res.digest, res.error)
-    return { completed:false, nextResumeFrom:i }                    // fail-stop, do NOT continue
+    return { completed:false, nextResumeFrom:i }                   // fail-stop, do NOT continue
   }
   record success receipt(i, res.digest, paidAtPeriod, gasUsed)
 }
@@ -111,6 +122,11 @@ return { completed:true, nextResumeFrom:null }
   **This MUST be verified by an integration test** (H1b: if the SDK marks Clock mutable, every
   payday serializes on the global Clock). If the SDK resolves it wrong, fall back to manually
   pinning shared refs. Do not pre-build that fallback — it's a verification gate, not default work.
+- **H3 (signer/gas binding) — mostly automatic.** `pay_one` takes no `Coin<T>` argument; funding
+  is drawn from inside the shared `Payroll` object, so the signer never supplies a funding coin and
+  **"gas coin ≠ funding" holds for free**. The remaining duty: `signer` must own `ownerCapId`, and
+  `tx.setSender(signer.toSuiAddress())` (set in the loop) binds sender == signer; the SDK auto-selects
+  the signer's SUI for gas. No `coinWithBalance` complexity.
 - **Fail-stop**: a chunk is a PTB → on-chain all-or-nothing (no partial pay within a chunk).
   Any chunk failure stops the run, does not submit later chunks, and returns `nextResumeFrom=i`
   so the caller fixes the cause (gas/funding) and resumes from that point. Money fails loud.
