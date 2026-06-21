@@ -1,0 +1,10 @@
+:root {
+  --ink:#0B1418; --panel:#11212A; --panel-edge:#1E3A44; --channel:#0E2A33;
+  --mist:#9FB6BE; --chalk:#EAF2F2; --flow:#2FD4C4; --gate-red:#FF5247;
+  --tax:#E2B13C; --liquid:#5BC8F5; --scallop:#7AE08B; --navi:#F2784B;
+  --mono:"Berkeley Mono","Departure Mono",ui-monospace,monospace;
+  --grotesk:"Schibsted Grotesk","Hanken Grotesk",system-ui,sans-serif;
+}
+html,body{background:var(--ink);color:var(--chalk);font-family:var(--grotesk);margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.label{text-transform:uppercase;letter-spacing:.08em;font-size:12px;color:var(--mist)}
