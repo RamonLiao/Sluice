@@ -18,6 +18,7 @@ export interface PayrollReader {
   listEmployees(payrollId: string): Promise<EmployeeRow[]>;
   currentPeriod(payrollId: string): Promise<bigint>;
   ownerCapId(payrollId: string): Promise<string>;
+  funding(payrollId: string): Promise<bigint>;
 }
 
 // obj = getDynamicFieldObject response; paths matched to captured fixture
@@ -67,5 +68,11 @@ export class ChainPayrollReader implements PayrollReader {
   async ownerCapId(payrollId: string): Promise<string> {
     const obj = await this.client.getObject({ id: payrollId, options: { showContent: true } });
     return normalizeSuiAddress((obj.data!.content as any).fields.owner_cap_id);
+  }
+
+  async funding(payrollId: string): Promise<bigint> {
+    const obj = await this.client.getObject({ id: payrollId, options: { showContent: true } });
+    // Balance<T> serializes as a plain u64 string at content.fields.funding
+    return BigInt((obj.data!.content as any).fields.funding);
   }
 }

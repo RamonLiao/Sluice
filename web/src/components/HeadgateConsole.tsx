@@ -17,9 +17,11 @@ type Gate = "armed" | "flowing" | "sealed" | "error";
 export function HeadgateConsole({
   rows,
   onDone,
+  ownerCapOk,
 }: {
   rows: EmployeeRow[];
   onDone: () => void;
+  ownerCapOk: boolean;
 }) {
   const account = useCurrentAccount({ dAppKit });
   const client = useCurrentClient({ dAppKit });
@@ -128,7 +130,7 @@ export function HeadgateConsole({
 
   const sealed = gate === "sealed";
   const flowing = gate === "flowing";
-  const leverDisabled = flowing || sealed || !account;
+  const leverDisabled = flowing || sealed || !account || !ownerCapOk;
 
   const netGas =
     result?.receipts.reduce((s, r) => s + (r.gasUsed ?? 0n), 0n) ?? 0n;

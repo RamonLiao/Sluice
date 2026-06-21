@@ -45,6 +45,7 @@ export default function App() {
   const { data, refetch } = usePayrollState();
   const rows = data?.rows ?? [];
   const period = data?.currentPeriod ?? 0n;
+  const funded = data?.funded ?? 0n;
 
   // Re-check owner cap whenever account or payrollId changes
   useEffect(() => {
@@ -108,7 +109,7 @@ export default function App() {
           }}
         >
           {/* Head pressure */}
-          <FundPanel funded={0n} onDone={handleTxDone} />
+          <FundPanel funded={funded} onDone={handleTxDone} ownerCapOk={ownerCapOk} />
 
           {/* Roster */}
           <div
@@ -141,7 +142,7 @@ export default function App() {
           </div>
 
           {/* Headgate console */}
-          <HeadgateConsole rows={rows} onDone={handleTxDone} />
+          <HeadgateConsole rows={rows} onDone={handleTxDone} ownerCapOk={ownerCapOk} />
         </div>
       </div>
 

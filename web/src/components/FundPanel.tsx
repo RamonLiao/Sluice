@@ -36,9 +36,11 @@ export function pickFundCoin(coins: CoinEntry[], minBalance: bigint): CoinEntry 
 export function FundPanel({
   funded,
   onDone,
+  ownerCapOk,
 }: {
   funded: bigint;
   onDone: () => void;
+  ownerCapOk: boolean;
 }) {
   const account = useCurrentAccount({ dAppKit });
   const client = useCurrentClient({ dAppKit });
@@ -135,7 +137,7 @@ export function FundPanel({
         </div>
       )}
 
-      <button onClick={fund} disabled={busy || !account}>
+      <button onClick={fund} disabled={busy || !account || !ownerCapOk}>
         {busy ? "FUNDING…" : "FUND"}
       </button>
     </div>

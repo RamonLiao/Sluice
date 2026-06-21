@@ -14,6 +14,7 @@ export function usePayrollState() {
         rows: await reader.listEmployees(TESTNET.payrollId),
         currentPeriod: await reader.currentPeriod(TESTNET.payrollId),
         ownerCapId: await reader.ownerCapId(TESTNET.payrollId),
+        funded: await reader.funding(TESTNET.payrollId),
       };
     },
   });
