@@ -1,6 +1,13 @@
 // Phase C: measure payday gas at N=3/50/100. Usage: cd ts && SUI_PRIVATE_KEY=... npx tsx scripts/gas-bench.ts
 // Adds N fresh employees (batched into PTBs), runs ONE payday over exactly those N, records net
 // gasUsed per chunk. Calibrates the provisional MAX_BATCH=50 (src/payday/types.ts).
+//
+// NOTE on accumulated state: each round only PAYS its own N fresh employees (buildPayday includes
+// only the addresses we pass), but prior rounds' employees remain in the shared Payroll's
+// `employees` Table. This does NOT bias the measurement: per-pay_one gas is per-PAID-employee plus
+// O(1) by-key dynamic-field access — Table size is irrelevant. Proven empirically below: with ~153
+// rows in the Table by N=100, the two 50-chunks read ~identical to the N=50 single chunk. A clean
+// per-N Payroll would cost more gas/time for the same numbers, so we don't rebuild.
 import { readFileSync } from "node:fs";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
