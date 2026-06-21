@@ -1,4 +1,4 @@
-import type { SuiClient } from "@mysten/sui/client";
+import type { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { normalizeSuiAddress } from "@mysten/sui/utils";
 
 export function matchOwnerCap(cap: any, payrollId: string, expectedCapId: string): boolean {
@@ -8,7 +8,7 @@ export function matchOwnerCap(cap: any, payrollId: string, expectedCapId: string
 }
 
 export async function findOwnerCap(
-  client: SuiClient, owner: string, payrollId: string, expectedCapId: string,
+  client: SuiJsonRpcClient, owner: string, payrollId: string, expectedCapId: string,
 ): Promise<string | null> {
   const type = (await import("../config/testnet.js")).TESTNET.packageId + "::payroll::PayrollOwnerCap";
   let cursor: string | null | undefined = null;
