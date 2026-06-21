@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
+import * as orchestrator from "@payroll-flow/orchestrator";
 import { jurisdictionToPair, runPayday } from "./run-payday.js";
+
+vi.mock("@payroll-flow/orchestrator", async () => {
+  const actual = await vi.importActual<typeof orchestrator>("@payroll-flow/orchestrator");
+  return {
+    ...actual,
+    executePayday: vi.fn(async () => ({ completed: true })),
+  };
+});
 
 describe("jurisdictionToPair", () => {
   it("maps EU jurisdiction bytes to EUR/USD", () => {
@@ -24,10 +33,45 @@ describe("runPayday", () => {
     const fetchFx = vi.fn(async () => ({
       fx_pair: new TextEncoder().encode("EUR/USD"), fx_rate: 1_080_000_000n,
       fx_pyth_publish_time_ms: 1_700_000_000_000n }));
-    const res = await runPayday({ rows, reader: {} as any, client: client as any,
+
+    await runPayday({ rows, reader: {} as any, client: client as any,
       signer: { toSuiAddress: () => "0xme" }, fetchFx: fetchFx as any });
-    expect(res.completed).toBe(true);
-    // executePayday read period=3 and gated against expectedPeriod=4 — no throw means gate passed
-    expect(client.getCurrentPeriod).toHaveBeenCalled();
+
+    // Direct assertion: executePayday MUST receive expectedPeriod = 4n (3+1)
+    // If someone drops the +1n logic, this fails immediately
+    expect(orchestrator.executePayday).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ expectedPeriod: 4n, resumeFrom: 0 })
+    );
+  });
+
+  it("passes expectedPeriod = currentPeriod (no +1) on resume path (C2 gate)", async () => {
+    const client = {
+      getCurrentPeriod: vi.fn(async () => 5n),
+      dryRunTransaction: vi.fn(async () => ({ ok: true, error: null })),
+      signAndExecute: vi.fn(async () => ({ kind: "success", digest: "0x1", error: null, gasUsed: null })),
+      waitForConfirm: vi.fn(async () => {}),
+    };
+    const rows = [{ addr: "0xaa", jurisdiction: new TextEncoder().encode("EU"),
+      gross: 100n, withholdingBps: 0, liquidBps: 10000, scallopBps: 0, naviBps: 0,
+      pendingFromPeriod: null, lastPaidPeriod: 0n, active: true }];
+    const fetchFx = vi.fn(async () => ({
+      fx_pair: new TextEncoder().encode("EUR/USD"), fx_rate: 1_080_000_000n,
+      fx_pyth_publish_time_ms: 1_700_000_000_000n }));
+
+    await runPayday({ rows, reader: {} as any, client: client as any,
+      signer: { toSuiAddress: () => "0xme" }, fetchFx: fetchFx as any, resumeFrom: 2 });
+
+    // Resume path: expectedPeriod should be currentPeriod (5n), NOT 6n
+    expect(orchestrator.executePayday).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ expectedPeriod: 5n, resumeFrom: 2 })
+    );
   });
 });
