@@ -5,7 +5,7 @@
 // adds 3 employees, and writes the full ts/testnet.json. Exercises the same gRPC execute path
 // the adapter uses, so a green run is also an early integration smoke test.
 import { readFileSync, writeFileSync } from "node:fs";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, getJsonRpcFullnodeUrl as getFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 
@@ -18,7 +18,7 @@ if (!cfg.packageId) throw new Error("set packageId in testnet.json (from sui cli
 const kp = Ed25519Keypair.fromSecretKey(process.env.SUI_PRIVATE_KEY!);
 const me = kp.toSuiAddress();
 // TRANSITIONAL: JSON-RPC for build + execute (gRPC unusable in 1.45.2 vs testnet — see grpc-client.ts).
-const rpc = new SuiClient({ url: getFullnodeUrl("testnet") });
+const rpc = new SuiClient({ url: getFullnodeUrl("testnet"), network: "testnet" });
 const core = rpc.core;
 const pkg = cfg.packageId as string;
 

@@ -10,8 +10,9 @@
 
 ## Global Constraints
 
-- Pin `@mysten/sui@1.45.2` in `web/` (must match orchestrator; do NOT bump to v2).
-- Read path = JSON-RPC `SuiClient` (orchestrator is JSON-RPC; gRPC unusable on testnet 1.45.2). Keep behind `PayrollReader` port for future GraphQL/gRPC swap.
+- **REVISED (Task 2 finding):** Modern `@mysten/dapp-kit-react@2.x` requires `@mysten/sui@2.x`. Decision (user-approved): unify the WHOLE project on `@mysten/sui@2.x` — `web/` uses v2 and `ts/` orchestrator is bumped to v2 (Task 2.5) so the `Transaction` type is shared and `buildPayday` output is directly signable by the v2 wallet. Do NOT keep a v1/v2 split.
+- `web/` uses `@mysten/dapp-kit-react@2.1.3` + `@mysten/dapp-kit-core@1.6.1` (API: `createDAppKit()` factory + `<DAppKitProvider dAppKit={...}>`, hooks from `@mysten/dapp-kit-react`). NOT the old v0.x `SuiClientProvider`/`WalletProvider` pattern the original plan assumed.
+- Read path = JSON-RPC `SuiClient` (keep behind `PayrollReader` port for future GraphQL/gRPC swap).
 - All on-chain `u64` (gross, current_period, last_paid_period, periods) parsed with `BigInt`, NEVER `Number`.
 - `DappKitPaydayClient` MUST build→sign→execute→waitForConfirm strictly per chunk; NEVER batch-build all chunks (C1: stale owned-input versions → equivocation).
 - Run Payroll MUST pass `expectedPeriod` (read `current_period` immediately before) and `resumeFrom`; on resume chunk[0] is skipped not rebuilt (C2: non-idempotent `begin_period` → double-pay).

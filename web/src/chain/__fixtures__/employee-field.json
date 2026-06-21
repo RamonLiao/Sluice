@@ -1,0 +1,45 @@
+{
+  "data": {
+    "objectId": "0x05148cd9f854351e6ee2b25582bcec2aa6aa4c502bdef3abcfe75d9d9bcaf795",
+    "version": "911410305",
+    "digest": "EFBgxP6tpnLMpjMLEaqoXJKkRA1dpRjR8TavTWwK1rpW",
+    "type": "0x2::dynamic_field::Field<address, 0xec5547fb4757de7b176f5df0c237ed0b6666de801aab4b3830e67f4a393c749b::payroll::EmployeeRecord>",
+    "owner": {
+      "ObjectOwner": "0x5744f35920395c3b7e8cb06139f9b46f1c7f1504188463c057c091c7a1e19f74"
+    },
+    "previousTransaction": "CrDDqe1966caGzoFgSzpi6WkS6YgpHPyxrbj7VKCQ8jF",
+    "storageRebate": "2720800",
+    "content": {
+      "dataType": "moveObject",
+      "type": "0x2::dynamic_field::Field<address, 0xec5547fb4757de7b176f5df0c237ed0b6666de801aab4b3830e67f4a393c749b::payroll::EmployeeRecord>",
+      "hasPublicTransfer": false,
+      "fields": {
+        "id": {
+          "id": "0x05148cd9f854351e6ee2b25582bcec2aa6aa4c502bdef3abcfe75d9d9bcaf795"
+        },
+        "name": "0xb5868560116886c998197fe5298a065bd83df837cb41f80a88fe473cfbddfb45",
+        "value": {
+          "type": "0xec5547fb4757de7b176f5df0c237ed0b6666de801aab4b3830e67f4a393c749b::payroll::EmployeeRecord",
+          "fields": {
+            "active": true,
+            "allocation": {
+              "type": "0xec5547fb4757de7b176f5df0c237ed0b6666de801aab4b3830e67f4a393c749b::allocation::AllocationConfig",
+              "fields": {
+                "liquid_bps": 10000,
+                "navi_btc_bps": 0,
+                "pending": null,
+                "scallop_usdc_bps": 0
+              }
+            },
+            "allocation_cap_id": "0xf5e17d9ee91aee15905fcf7d3ef6bc64eff1ce8c78dbfd5ca2594daa9a2a9f1e",
+            "employee": "0xb5868560116886c998197fe5298a065bd83df837cb41f80a88fe473cfbddfb45",
+            "gross": "1000",
+            "jurisdiction": [85, 83],
+            "last_paid_period": "3",
+            "withholding_bps": 1000
+          }
+        }
+      }
+    }
+  }
+}
