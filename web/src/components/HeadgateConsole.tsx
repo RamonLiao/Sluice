@@ -46,28 +46,14 @@ export function HeadgateConsole({
     setHoldPct(0);
   }, []);
 
-  const startHold = useCallback(() => {
-    if (gate === "flowing" || gate === "sealed") return;
-    holdStart.current = Date.now();
-
-    const tick = () => {
-      if (!holdStart.current) return;
-      const elapsed = Date.now() - holdStart.current;
-      const pct = Math.min(100, (elapsed / HOLD_MS) * 100);
-      setHoldPct(pct);
-      if (pct < 100) {
-        animFrame.current = requestAnimationFrame(tick);
-      }
-    };
-    animFrame.current = requestAnimationFrame(tick);
-
-    holdTimer.current = setTimeout(() => {
-      setHoldPct(0);
-      void pull();
-    }, HOLD_MS);
-  }, [gate]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function pull() {
+  const pull = useCallback(async () => {
+    // N1 hard guard: if a partial run has occurred, resumeFrom MUST be > 0
+    // A stale closure resetting resumeFrom to 0 while partialRun===true would
+    // bypass the double-pay guard — block unconditionally here.
+    if (partialRun.current && resumeFrom === 0) {
+      setMsg("RESUME ONLY — cannot full-retry after a partial run");
+      return;
+    }
     if (!account) return;
     setGate("flowing");
     setMsg("");
@@ -117,7 +103,28 @@ export function HeadgateConsole({
         setMsg(String(e));
       }
     }
-  }
+  }, [account, rows, client, resumeFrom, onDone]);
+
+  const startHold = useCallback(() => {
+    if (gate === "flowing" || gate === "sealed") return;
+    holdStart.current = Date.now();
+
+    const tick = () => {
+      if (!holdStart.current) return;
+      const elapsed = Date.now() - holdStart.current;
+      const pct = Math.min(100, (elapsed / HOLD_MS) * 100);
+      setHoldPct(pct);
+      if (pct < 100) {
+        animFrame.current = requestAnimationFrame(tick);
+      }
+    };
+    animFrame.current = requestAnimationFrame(tick);
+
+    holdTimer.current = setTimeout(() => {
+      setHoldPct(0);
+      void pull();
+    }, HOLD_MS);
+  }, [gate, pull]);
 
   const sealed = gate === "sealed";
   const flowing = gate === "flowing";
