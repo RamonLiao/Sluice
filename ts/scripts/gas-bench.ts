@@ -9,7 +9,7 @@
 // rows in the Table by N=100, the two 50-chunks read ~identical to the N=50 single chunk. A clean
 // per-N Payroll would cost more gas/time for the same numbers, so we don't rebuild.
 import { readFileSync } from "node:fs";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, getJsonRpcFullnodeUrl as getFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { buildPayday } from "../src/payday/build.js";
@@ -22,7 +22,7 @@ const cfg = JSON.parse(readFileSync("./testnet.json", "utf8"));
 const kp = Ed25519Keypair.fromSecretKey(process.env.SUI_PRIVATE_KEY!);
 const me = kp.toSuiAddress();
 const client = makeGrpcPaydayClient({ network: "testnet" });
-const rpc = new SuiClient({ url: getFullnodeUrl("testnet") });
+const rpc = new SuiClient({ url: getFullnodeUrl("testnet"), network: "testnet" });
 const SUI = cfg.coinType as string;
 const pkg = cfg.packageId as string;
 const pair: FxPair = "EUR/USD";

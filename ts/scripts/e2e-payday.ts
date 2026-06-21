@@ -2,7 +2,7 @@
 // Drives executePayday against the deployed payroll: full payday, period-advance check, H1 clock
 // assertion, and a resume-gate (double-run blocked) check.
 import { readFileSync } from "node:fs";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, getJsonRpcFullnodeUrl as getFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { buildPayday } from "../src/payday/build.js";
 import { executePayday } from "../src/payday/execute.js";
@@ -14,7 +14,7 @@ import type { PaydayConfig, PaydayEmployee, FxPair } from "../src/payday/types.j
 const cfg = JSON.parse(readFileSync("./testnet.json", "utf8"));
 const kp = Ed25519Keypair.fromSecretKey(process.env.SUI_PRIVATE_KEY!);
 const client = makeGrpcPaydayClient({ network: "testnet" });
-const rpc = new SuiClient({ url: getFullnodeUrl("testnet") });
+const rpc = new SuiClient({ url: getFullnodeUrl("testnet"), network: "testnet" });
 
 const config: PaydayConfig = {
   packageId: cfg.packageId, coinType: cfg.coinType, payrollId: cfg.payrollId,
