@@ -85,7 +85,8 @@ export async function executePayday(
     await client.waitForConfirm(res.digest); // H2: confirm before next chunk is even built
 
     if (res.kind === "FailedTransaction") {
-      receipts[i] = { ...receipts[i]!, digest: res.digest, status: "failure", error: res.error };
+      // Capture gasUsed even on abort: a failed payday still costs gas, the receipt must record it.
+      receipts[i] = { ...receipts[i]!, digest: res.digest, status: "failure", error: res.error, gasUsed: res.gasUsed };
       return { receipts, completed: false, nextResumeFrom: i }; // fail-stop
     }
 

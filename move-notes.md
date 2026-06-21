@@ -201,3 +201,20 @@ payroll              ← Payroll, pay_one()       (→ allocation, escrow, compl
 3. 上述兩者解掉前不可上 mainnet。
 4. **[#7 operator invariant] fx_pair label 無鏈上驗證**:`pay_one` 收任意 `vector<u8>`,鏈上不檢查 label 是否對應實際查的 feed(reporting-only,符合 D9)。
    同「vault-ID trust」類 → **#8 orchestrator 規範**:傳入 `fx_pair` 必須對應 `getFxScalars` 實際查的 Pyth feed。記為 operator invariant(非 code fix)。
+
+## #8 testnet 部署(2026-06-21)
+- **packageId**: `0xec5547fb4757de7b176f5df0c237ed0b6666de801aab4b3830e67f4a393c749b`(testnet, 7 modules)
+- **UpgradeCap**: `0x9e8129b3930cba898946c2414960a4856c75adad8c979d4366e2f69e67122410`(owned by deployer `0x1509…bc4c`)
+- e2e setup 物件(coinType=`0x2::sui::SUI`)寫在 `ts/testnet.json`(gitignored,可由 `scripts/testnet-setup.ts` 重生)。
+- ⚠ **transport 現實修正(Rule 7,推翻 Phase B「用 SuiGrpcClient」定案)**:`@mysten/sui@1.45.2` 的 gRPC client 對現行 testnet node(1.73.1)**兩條路都不能用**:(1) resolve 未實作(throw);(2) execute 寫死 readMask `transaction.transaction` 被 node 拒。→ prod adapter **暫時全走 JSON-RPC `SuiClient`**(build+dryRun+execute+wait+getObject),class/port/factory 簽名保持 transport-agnostic,**未來 SDK 修好 gRPC 只換 factory 內部**。標記在 `ts/src/payday/grpc-client.ts` header + `TODO(gRPC-upgrade)`。
+- ✅ **H1 已驗**:JSON-RPC resolver 對 clock `0x6` resolved `mutable:false`(從 resolved tx inputs 實際看到),H1 風險歸零。
+
+## #8 Phase C gas 量測(2026-06-21, testnet)
+| N(員工) | chunks | net gas/chunk (MIST) |
+|---------|--------|----------------------|
+| 3 | 1 | 4,181,360 |
+| 50 | 1 | 52,056,136 (~0.052 SUI) |
+| 100 | 2 | 52,056,136 + 52,046,136 |
+- 每 `pay_one` ≈ 1.04M MIST;50-chunk ≈ 0.052 SUI = Sui 單 tx 50-SUI budget 上限的 **~0.1%**。
+- begin_period 只多 ~10,000 MIST(chunk0 vs chunk1 差值),可忽略。
+- **Verdict**:`MAX_BATCH=50` 極保守,gas 非瓶頸(真正上限是 PTB command/object-input 數,非 gas)。50 維持,大餘裕。腳本:`ts/scripts/gas-bench.ts`。
