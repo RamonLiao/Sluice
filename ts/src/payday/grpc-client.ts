@@ -1,5 +1,5 @@
 import type { Transaction } from "@mysten/sui/transactions";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, getJsonRpcFullnodeUrl as getFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { normalizeSuiAddress } from "@mysten/sui/utils";
 import type { PaydayClient, PaydaySigner, DryRunResult, ExecResult } from "./execute-types.js";
 import { mapExecResult, mapDryRun, decodeCurrentPeriod, type TxResponseLike } from "./grpc-helpers.js";
@@ -80,7 +80,7 @@ export function makeGrpcPaydayClient(opts: {
 }): GrpcPaydayClient {
   // TRANSITIONAL: one JSON-RPC SuiClient drives everything (core = dryRun/execute/wait/getObject,
   // and itself = tx.build resolution). See header — gRPC upgrade swaps only this function.
-  const rpc = new SuiClient({ url: opts.rpcUrl ?? getFullnodeUrl(opts.network) });
+  const rpc = new SuiClient({ url: opts.rpcUrl ?? getFullnodeUrl(opts.network), network: opts.network });
   return new GrpcPaydayClient(rpc.core as unknown as CoreLike, rpc as unknown as ResolveClient);
 }
 

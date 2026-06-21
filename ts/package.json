@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@mysten/sui": "^1.45.2",
+    "@mysten/sui": "^2.19.0",
     "@pythnetwork/hermes-client": "^3.1.0"
   },
   "devDependencies": {
