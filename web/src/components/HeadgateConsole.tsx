@@ -130,7 +130,9 @@ export function HeadgateConsole({
 
   const sealed = gate === "sealed";
   const flowing = gate === "flowing";
-  const leverDisabled = flowing || sealed || !account || !ownerCapOk;
+  // Lever is disabled when roster is empty (no active rows to pay)
+  const activeRows = rows.filter((r) => r.active);
+  const leverDisabled = flowing || sealed || !account || !ownerCapOk || activeRows.length === 0;
 
   const netGas =
     result?.receipts.reduce((s, r) => s + (r.gasUsed ?? 0n), 0n) ?? 0n;
@@ -234,6 +236,11 @@ export function HeadgateConsole({
           {!account && (
             <span className="label" style={{ color: "var(--gate-red)" }}>
               wallet not connected
+            </span>
+          )}
+          {account && ownerCapOk && activeRows.length === 0 && (
+            <span className="label" style={{ color: "var(--gate-red)" }}>
+              NO HEAD PRESSURE — FUND TO ARM
             </span>
           )}
         </div>

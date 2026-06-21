@@ -74,4 +74,32 @@ describe("runPayday", () => {
       expect.objectContaining({ expectedPeriod: 5n, resumeFrom: 2 })
     );
   });
+
+  it("includes active employee with gross=0 — no gross filter (matches Move)", async () => {
+    // Ensures gross=0 rows are NOT silently dropped; Move pays 0 which is correct.
+    const client = {
+      getCurrentPeriod: vi.fn(async () => 1n),
+      dryRunTransaction: vi.fn(async () => ({ ok: true, error: null })),
+      signAndExecute: vi.fn(async () => ({ kind: "success", digest: "0x2", error: null, gasUsed: null })),
+      waitForConfirm: vi.fn(async () => {}),
+    };
+    const rows = [
+      { addr: "0xbb", jurisdiction: new TextEncoder().encode("EU"),
+        gross: 0n, withholdingBps: 0, liquidBps: 10000, scallopBps: 0, naviBps: 0,
+        pendingFromPeriod: null, lastPaidPeriod: 0n, active: true },
+    ];
+    const fetchFx = vi.fn(async () => ({
+      fx_pair: new TextEncoder().encode("EUR/USD"), fx_rate: 1_080_000_000n,
+      fx_pyth_publish_time_ms: 1_700_000_000_000n }));
+
+    await runPayday({ rows, reader: {} as any, client: client as any,
+      signer: { toSuiAddress: () => "0xme" }, fetchFx: fetchFx as any });
+
+    // buildPayday must have been called with the gross=0 employee included
+    expect(orchestrator.executePayday).toHaveBeenCalled();
+    // If rows were filtered by gross, executePayday would receive an empty plan —
+    // the mock always returns completed:true so we can't assert on plan contents,
+    // but we CAN assert fetchFx was called (meaning the active row was processed).
+    expect(fetchFx).toHaveBeenCalled();
+  });
 });
