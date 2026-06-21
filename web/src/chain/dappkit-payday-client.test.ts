@@ -23,4 +23,20 @@ describe("DappKitPaydayClient", () => {
     const client = new DappKitPaydayClient(suiClient as any, vi.fn());
     expect(await client.getCurrentPeriod("0xpay")).toBe(7n);
   });
+
+  it("signAndExecute catches wallet rejection and returns FailedTransaction with error", async () => {
+    // Why: if wallet rejection is silently swallowed, executePayday treats a failed chunk as success,
+    // allowing duplicate payment of the same recipients — a critical financial bug.
+    const tx = new Transaction();
+    const rejectionError = new Error("User rejected");
+    const signAndExecuteFn = vi.fn(async () => {
+      throw rejectionError;
+    });
+    const client = new DappKitPaydayClient({} as any, signAndExecuteFn);
+    const res = await client.signAndExecute(tx, { toSuiAddress: () => "0xme" });
+    expect(res.kind).toBe("FailedTransaction");
+    expect(res.digest).toBe("");
+    expect(res.error).toBe("Error: User rejected");
+    expect(res.error).not.toBe("");  // must have non-empty error
+  });
 });

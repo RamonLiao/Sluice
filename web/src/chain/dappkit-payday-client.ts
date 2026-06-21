@@ -17,7 +17,10 @@ export class DappKitPaydayClient implements PaydayClient {
 
   async getCurrentPeriod(payrollId: string): Promise<bigint> {
     const o = await this.sui.getObject({ id: payrollId, options: { showContent: true } });
-    return BigInt((o.data!.content as any).fields.current_period);
+    if (!o.data || !o.data.content) {
+      throw new Error(`payroll object ${payrollId} not found or has no content`);
+    }
+    return BigInt((o.data.content as any).fields.current_period);
   }
 
   async dryRunTransaction(tx: Transaction): Promise<DryRunResult> {
