@@ -73,7 +73,8 @@ function makeMockClient(opts: MockOpts = {}) {
         kind: failed ? "FailedTransaction" : "success",
         digest: `dig${idx}`,
         error: failed ? "MoveAbort 11" : null,
-        gasUsed: failed ? null : 1000n,
+        // A Move abort still burns computation gas; the chain reports gasUsed on failure too.
+        gasUsed: failed ? 42n : 1000n,
       };
     },
     async waitForConfirm() {
@@ -127,6 +128,16 @@ describe("executePayday — fail-stop", () => {
     expect(res.receipts[1]!.error).toBe("MoveAbort 11");
     // WHY: money fails loud — chunk[2] must NEVER be submitted after chunk[1] aborts.
     expect(calls).not.toContain("exec:2");
+  });
+
+  it("captures gasUsed on the failed chunk receipt (audit cost on abort — leftover [2])", async () => {
+    const { client } = makeMockClient({ failExecAt: 0 });
+    const res = await executePayday(makePlan(1), "0xpayroll", signer, client, { preflight: false });
+    expect(res.completed).toBe(false);
+    expect(res.receipts[0]!.status).toBe("failure");
+    // WHY: a failed payday still costs gas; the receipt must record it for reconciliation,
+    // not silently drop it (Phase B left this null).
+    expect(res.receipts[0]!.gasUsed).toBe(42n);
   });
 });
 
