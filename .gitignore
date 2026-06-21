@@ -5,3 +5,4 @@ plan.md
 # Move build artifacts
 move/build/
 
+node_modules
