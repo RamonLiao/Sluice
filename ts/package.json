@@ -12,6 +12,7 @@
     "@pythnetwork/hermes-client": "^3.1.0"
   },
   "devDependencies": {
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

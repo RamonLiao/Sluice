@@ -1,7 +1,19 @@
 import type { Transaction } from "@mysten/sui/transactions";
-import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import type { PaydayClient, PaydaySigner, DryRunResult, ExecResult } from "./execute-types.js";
 import { mapExecResult, mapDryRun, decodeCurrentPeriod, type TxResponseLike } from "./grpc-helpers.js";
+
+// ⚠ TRANSITIONAL — runs on JSON-RPC today; FULL gRPC UPGRADE PENDING (2026-06-21).
+// @mysten/sui@1.45.2's gRPC client is unusable against the live testnet node (1.73.1) on BOTH paths:
+//   1. resolve  — `GrpcCoreClient.resolveTransactionData` throws "Transaction resolution is not
+//                  supported with the GRPC client" (only the jsonRpc resolver is implemented).
+//   2. execute  — its hardcoded readMask path "transaction.transaction" (grpc/core.js:212) is
+//                  rejected by the node: `INVALID_ARGUMENT: invalid read_mask path`.
+// So the entire adapter currently runs on the JSON-RPC SuiClient (resolve + dryRun + execute + wait
+// + getObject). The class/port/factory signatures are transport-agnostic on purpose: when a future
+// SDK fixes gRPC resolve + readMask, swap ONLY the factory internals (point core at grpc.core, keep
+// JSON-RPC for resolve until its gRPC path lands) — nothing else changes. Tracked: move-notes / progress.
+// TODO(gRPC-upgrade): replace the JSON-RPC core below with SuiGrpcClient once 1.x gRPC works on testnet.
 
 /** Minimal client.core surface the adapter uses; the real SuiGrpcClient.core satisfies it. */
 export interface CoreLike {
@@ -11,8 +23,9 @@ export interface CoreLike {
   waitForTransaction(o: { digest: string; timeout?: number }): Promise<unknown>;
 }
 
-/** A client object `tx.build({ client })` accepts — anything exposing `.core`. */
-type BuildClient = { core: unknown };
+/** A client object `tx.build({ client })` accepts — anything exposing a resolving `.core`.
+ *  In the hybrid this is a JSON-RPC SuiClient (its core implements resolveTransactionData). */
+type ResolveClient = { core: unknown };
 
 /** The port's signer only needs toSuiAddress(); the adapter also needs real signing. A
  *  @mysten/sui Keypair (e.g. Ed25519Keypair) satisfies this. */
@@ -23,16 +36,15 @@ export interface SignerLike extends PaydaySigner {
 const WAIT_TIMEOUT_MS = 60_000;
 
 export class GrpcPaydayClient implements PaydayClient {
-  private readonly buildClient: BuildClient;
-
-  constructor(private readonly core: CoreLike, buildClient?: BuildClient) {
-    this.buildClient = buildClient ?? { core };
-  }
+  // core = gRPC (dryRun/execute/wait/getObject); resolveClient = JSON-RPC (tx.build resolution only).
+  constructor(private readonly core: CoreLike, private readonly resolveClient?: ResolveClient) {}
 
   private build(tx: Transaction): Promise<Uint8Array> {
-    // `tx.build` resolves tx.object() refs via the core resolver (incl. H1 clock immutability).
+    // Resolution (tx.object() refs incl. clock immutability via ABI) happens here via the JSON-RPC
+    // resolveClient — gRPC cannot do this in 1.45.2. resolveClient is only optional so unit tests
+    // (which stub tx.build) can omit it; a live adapter from makeGrpcPaydayClient always sets it.
     type BuildOpts = NonNullable<Parameters<Transaction["build"]>[0]>;
-    return tx.build({ client: this.buildClient as unknown as BuildOpts["client"] });
+    return tx.build({ client: this.resolveClient as unknown as BuildOpts["client"] });
   }
 
   async getCurrentPeriod(payrollId: string): Promise<bigint> {
@@ -61,23 +73,14 @@ export class GrpcPaydayClient implements PaydayClient {
 
 type SuiNetwork = "testnet" | "mainnet" | "devnet" | "localnet";
 
-/** Default Sui full-node gRPC-web endpoints. Override via `baseUrl` for a private node. */
-const GRPC_ENDPOINTS: Record<SuiNetwork, string> = {
-  testnet: "https://fullnode.testnet.sui.io:443",
-  mainnet: "https://fullnode.mainnet.sui.io:443",
-  devnet: "https://fullnode.devnet.sui.io:443",
-  localnet: "http://127.0.0.1:9000",
-};
-
 export function makeGrpcPaydayClient(opts: {
   network: SuiNetwork;
-  baseUrl?: string;
+  rpcUrl?: string;
 }): GrpcPaydayClient {
-  const client = new SuiGrpcClient({
-    network: opts.network,
-    baseUrl: opts.baseUrl ?? GRPC_ENDPOINTS[opts.network],
-  });
-  return new GrpcPaydayClient(client.core as unknown as CoreLike, client as unknown as BuildClient);
+  // TRANSITIONAL: one JSON-RPC SuiClient drives everything (core = dryRun/execute/wait/getObject,
+  // and itself = tx.build resolution). See header — gRPC upgrade swaps only this function.
+  const rpc = new SuiClient({ url: opts.rpcUrl ?? getFullnodeUrl(opts.network) });
+  return new GrpcPaydayClient(rpc.core as unknown as CoreLike, rpc as unknown as ResolveClient);
 }
 
 /** H1 offline assertion: after build, the clock 0x6 shared input must be mutable:false. */
