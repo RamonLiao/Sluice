@@ -15,7 +15,7 @@
  *   useCurrentAccount, useCurrentWallet, useWallets, useWalletConnection,
  *   useDAppKit({ dAppKit }) — pass the exported `dAppKit` instance.
  *
- * The orchestrator (ts/) keeps @mysten/sui@1.45.2 (separate workspace pkg).
+ * Both ts/ and web/ are on @mysten/sui v2 (ts/ bumped from 1.45.2 this branch).
  */
 
 import { createDAppKit } from "@mysten/dapp-kit-core";

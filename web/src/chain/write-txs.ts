@@ -98,15 +98,3 @@ export function buildFund(p: {
   });
   return tx;
 }
-
-export function pickCreatedObjects(
-  changes: Array<{ type: string; objectType: string; objectId: string }>,
-): { payrollId: string; ownerCapId: string; escrowId: string } {
-  const created = changes.filter((c) => c.type === "created");
-  const find = (frag: string) => created.find((c) => c.objectType.includes(frag))!.objectId;
-  return {
-    payrollId: find("::payroll::Payroll<"),
-    ownerCapId: find("::payroll::PayrollOwnerCap"),
-    escrowId: find("::escrow::TaxEscrow<"),
-  };
-}

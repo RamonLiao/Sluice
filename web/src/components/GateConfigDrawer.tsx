@@ -3,11 +3,12 @@ import type { EmployeeRow } from "../chain/payroll-reader.js";
 import {
   buildAddEmployee,
   buildSetGross,
-  buildSetRatios,
 } from "../chain/write-txs.js";
 import { dAppKit } from "../providers.js";
 import { TESTNET } from "../config/testnet.js";
-import { RatioSliders, ratioError, type Ratios } from "./RatioSliders.js";
+// Note: RatioSliders / set_ratios is employee-side only (#3 Employee PWA).
+// AllocationCap is transferred to the employee on add_employee; the employer
+// never holds it, so ratio-setting is not a valid employer action.
 
 async function execTx(tx: import("@mysten/sui/transactions").Transaction) {
   const result = await dAppKit.signAndExecuteTransaction({ transaction: tx });
@@ -20,13 +21,11 @@ async function execTx(tx: import("@mysten/sui/transactions").Transaction) {
 export function GateConfigDrawer({
   employee,
   ownerCapId,
-  allocationCapId,
   onClose,
   onDone,
 }: {
   employee: EmployeeRow | "new";
   ownerCapId: string;
-  allocationCapId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -40,13 +39,6 @@ export function GateConfigDrawer({
   const [newGross, setNewGross] = useState(
     employee !== "new" ? String(employee.gross) : "0",
   );
-
-  // set_ratios form
-  const [ratios, setRatios] = useState<Ratios>({
-    liquidBps: employee !== "new" ? employee.liquidBps : 10000,
-    scallopBps: employee !== "new" ? employee.scallopBps : 0,
-    naviBps: employee !== "new" ? employee.naviBps : 0,
-  });
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,23 +80,6 @@ export function GateConfigDrawer({
       coinType: TESTNET.coinType,
       employee: employee.addr,
       gross: BigInt(newGross),
-    });
-    await execTx(tx);
-  }
-
-  async function handleSetRatios() {
-    if (employee === "new" || !allocationCapId) return;
-    const err = ratioError(ratios);
-    if (err) {
-      setError(err);
-      return;
-    }
-    const tx = buildSetRatios({
-      payrollId: TESTNET.payrollId,
-      allocationCapId,
-      coinType: TESTNET.coinType,
-      employee: employee.addr,
-      ...ratios,
     });
     await execTx(tx);
   }
@@ -220,22 +195,6 @@ export function GateConfigDrawer({
         </section>
       )}
 
-      {/* SET RATIOS — only when editing existing employee with allocationCapId */}
-      {employee !== "new" && allocationCapId && (
-        <section style={{ marginBottom: 24 }}>
-          <div className="label" style={{ marginBottom: 8 }}>
-            SET RATIOS
-          </div>
-          <RatioSliders value={ratios} onChange={setRatios} />
-          <button
-            onClick={() => run(handleSetRatios)}
-            disabled={busy || ratioError(ratios) !== null}
-            style={{ marginTop: 8 }}
-          >
-            {busy ? "…" : "STAGE RATIOS"}
-          </button>
-        </section>
-      )}
     </aside>
   );
 }
