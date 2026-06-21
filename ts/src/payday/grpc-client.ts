@@ -1,5 +1,6 @@
 import type { Transaction } from "@mysten/sui/transactions";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { normalizeSuiAddress } from "@mysten/sui/utils";
 import type { PaydayClient, PaydaySigner, DryRunResult, ExecResult } from "./execute-types.js";
 import { mapExecResult, mapDryRun, decodeCurrentPeriod, type TxResponseLike } from "./grpc-helpers.js";
 
@@ -83,13 +84,16 @@ export function makeGrpcPaydayClient(opts: {
   return new GrpcPaydayClient(rpc.core as unknown as CoreLike, rpc as unknown as ResolveClient);
 }
 
-/** H1 offline assertion: after build, the clock 0x6 shared input must be mutable:false. */
-const CLOCK_ID = "0x0000000000000000000000000000000000000000000000000000000000000006";
-export function assertClockImmutable(
-  builtInputs: ReadonlyArray<{ Object?: { SharedObject?: { objectId: string; mutable: boolean } } }>,
-): void {
-  const clock = builtInputs.find((i) => i.Object?.SharedObject?.objectId === CLOCK_ID);
-  if (!clock) throw new Error("H1: clock 0x6 not found among shared inputs");
+/** H1 offline assertion: after `tx.build()`, the resolved clock 0x6 shared input must be mutable:false.
+ *  Input shape is `tx.getData().inputs`: { Object: { SharedObject: { objectId, initialSharedVersion,
+ *  mutable } } }. normalizeSuiAddress equalizes 0x6 / 0x0…06. */
+const CLOCK_ID = normalizeSuiAddress("0x6");
+type BuiltInput = { Object?: { SharedObject?: { objectId: string; mutable: boolean } } };
+export function assertClockImmutable(builtInputs: ReadonlyArray<BuiltInput>): void {
+  const clock = builtInputs.find(
+    (i) => i.Object?.SharedObject && normalizeSuiAddress(i.Object.SharedObject.objectId) === CLOCK_ID,
+  );
+  if (!clock) throw new Error("H1: clock 0x6 not found among shared inputs (was the tx built/resolved?)");
   if (clock.Object!.SharedObject!.mutable !== false) {
     throw new Error("H1 FAIL: clock 0x6 resolved mutable:true — expected immutable (&Clock)");
   }
